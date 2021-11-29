@@ -227,6 +227,7 @@ class telegramBot {
               user_date_reg: db.fn.now(),
               user_activate: 1,
               user_tg_id: msg.from.id,
+              user_token: randomstring.generate(),
             }).into('users'))[0];
 
             const message = this.completeLang('ru', 'REGISTERED_SUCCESS', session.name, insertId, !isUserNameTaken ? msg.from.username : msg.from.id, password);

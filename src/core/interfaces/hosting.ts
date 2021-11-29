@@ -18,6 +18,7 @@ interface HostingUser {
   rmoney: number;
   key_activate: string;
   user_tg_id: number;
+  user_token: string;
 }
 
 interface HostingOrder {
