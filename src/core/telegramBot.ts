@@ -54,8 +54,12 @@ class telegramBot {
     return <HostingUser>await db.select('*').from('users').where('user_tg_id', tgId).first();
   }
 
-  async getOrders(userId: number) {
-    return <HostingOrder[]>await db.select('*').from('servers').where('user_id', userId);
+  async getOrders(userId: number, includeLocation = false): Promise<HostingOrder[] | HostingOrder[] & HostingLocation[]> {
+    if(includeLocation) {
+      return <HostingOrder[] & HostingLocation[]>await db.select('*').from('servers').innerJoin('locations', 'locations.location_id', 'servers.location_id').where('user_id', userId);
+    } else {
+      return <HostingOrder[]>await db.select('*').from('servers').where('user_id', userId);
+    }
   }
 
   async getRates(rate: number = -1) {
@@ -119,6 +123,17 @@ class telegramBot {
 
   }
 
+  async getNewServerPort(minPort: number, maxPort: number) {
+    for(let port = minPort; port <= maxPort; port += 2) {
+      const isPortTaken = await db.select('server_id').from('servers').where('server_port', port).first();
+      if(!isPortTaken) {
+        return port;
+      }
+    }
+
+    return -1;
+  }
+
   async cancel(userId: number, chatId: number, showMenu: boolean) {
     const session = this.getSession(userId);
 
@@ -128,6 +143,15 @@ class telegramBot {
 
     if(showMenu) {
       await this.menu(chatId, session.tgId, session.name, true);
+    }
+  }
+
+  getRateStatus(status: number) {
+    switch(status) {
+      case 1: return 'Выключен';
+      case 2: return 'Включен';
+      case 3: return 'Устанавливается';
+      default: return `unhandled status: ${status}`;
     }
   }
 
@@ -274,7 +298,7 @@ class telegramBot {
         }
 
         case CallbackActions.CALLBACK_MY_ORDERS: {
-          const orders = await this.getOrders(user.user_id);
+          const orders: HostingOrder[] | (HostingOrder[] & HostingLocation[]) = await this.getOrders(user.user_id, true);
 
           if(orders.length > 0) {
             const callbacks: CallbackData[] = [];
@@ -285,14 +309,16 @@ class telegramBot {
               })
             }
 
-            await this.botInstance.sendMessage(callbackQuery.message.chat.id, `${session.name}, Ваши заказы: ${
-              orders.map((service: HostingOrder, idx: number) => {
+            await this.botInstance.sendMessage(callbackQuery.message.chat.id, `${session.name}, Ваши заказы: 
+${
+              orders.map((service: HostingOrder & HostingLocation, idx: number) => {
                 return `
 Услуга #${service.server_id}
 От: ${service.server_date_reg.toLocaleString()}
 Оплачена до: ${service.server_date_end.toLocaleString()}
-Локация: ${service.location_id}
-Порт: ${service.server_port}
+Локация: ${service.location_name} [#${service.location_id}]
+IP: ${service.location_ip}:${service.server_port}
+Статус: ${this.getRateStatus(service.server_status)}
               `;
               })
             }`, {
@@ -423,22 +449,25 @@ class telegramBot {
     });
 
     const selected: HostingLocation = allowedLocations[this.getRandomIntInclusive(0, allowedLocations.length - 1)];
+    const port = await this.getNewServerPort(rate.game_min_port, rate.game_max_port);
+
     return (await db.insert({
       user_id: user.user_id,
       game_id: rate.game_id,
       location_id: selected.location_id,
       server_slots: slots,
-      server_port: 0,
+      server_port: port,
       server_password: randomstring.generate(),
-      server_status: 0,
+      server_status: 3,
       server_ssd_load: 0,
       server_ram_cpu_date: 0,
       server_ssd_date: 0,
       server_date_reg: db.fn.now(),
       server_date_end: db.raw('DATE_ADD(NOW(), INTERVAL 31 DAY)'),
-      server_work: 0,
+      server_work: 1,
       server_binary: '',
       server_binary_version: '',
+      server_mysql: 0,
     }).into('servers'))[0];
   }
 }
